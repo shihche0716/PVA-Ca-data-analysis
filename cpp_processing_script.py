@@ -179,6 +179,73 @@ def euclidian_distance(pos1,pos2):
     """
     return np.sqrt(sum([(pos1[i]**2 + pos2[i]**2) for i in range(2)]))
     
+def standardize_extraction(signal,baseline_period= None,baseline_cutoff = 1, absolute = False):
+    """
+    Input
+        1. signal: 1D Array of calcium trace
+        2. baseline_period: A two-element vector with index of the start/end points of baseline period, default set as None (All signal considered as baseline)
+        3. baseline_cutoff: ratio from 0 to 1, determine the range of signals included as baseline range (data points below the assigned cutoff after normalized would be extracted, concatenated to a continuous baseline signal session)
+        4. absolute: Requirement for adjusting baseline_cutoff based on the min/max of input signal  
+    Output
+        1. Whole signal transformed into Z-score 
+        2. baseline_sig: Partial signal from original trace with value below cutoff, defined as baseline period 
+        3. ave: Average value of baseline period 
+        4. sd: Standard deviation of baseline period 
+    """
+    baseline_sig = signal
+    cutoff = baseline_cutoff if absolute else (np.max(signal)- np.min(signal))*baseline_cutoff + np.min(signal)
+
+    if not baseline_period == None:#Baseline period defined 
+        baseline_sig = signal[baseline_period[0]:baseline_period[1]]
+        ave, sd = baseline_sig.mean(), np.std(baseline_sig)
+    else:
+        baseline_sig = signal[np.where(signal < cutoff)[0][()]]
+        ave, sd = baseline_sig.mean(), np.std(baseline_sig)
+
+    return normalize(signal, ave, sd), baseline_sig, ave, sd 
+
+def start_end_index(time, start, pre,post, decimal = 0):
+    """
+    Inputs
+    -------
+    time : 1-D array 
+        Time series for time
+    start : float
+        Timing (s) to align as the 0 s of extracted signal
+    pre : float
+        Lenght of time to include before "start"
+    post : float
+        Lenght of time to include after "start"
+    decimal : integer
+        Number of decimal for finding best-fit index of time that match with specified timing
+
+    Returns
+    -------
+    [Index of start, Index of end]
+    """
+
+    return [np.where(np.floor(time*(10**decimal))/10**decimal == np.floor(start-pre))[0].min(),\
+         np.where(np.floor(time*(10**decimal))/10**decimal == np.floor(start+post-1))[0].max()]
+
+def normalize(trace, dev, denominator): 
+    """
+    Inputs
+    -------
+    trace : 1-D array 
+        Time series to be standardized
+    dev : float
+        The number to subtract from the entire input time series
+    denominator : float
+        The number for the subtracted signal to divid with
+    Returns
+    -------
+    An array of standardized signal
+    """
+    return np.array((trace - dev)/denominator, dtype = 'float')
+
+res_det = lambda r,thr: ['EX' if r > thr else 'INH' if r < -thr else 'NS'][0] #Response determination 
+
+
 def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
                      crop_length, pref_side, plot_raw,save_plot,save_table):
     """
@@ -471,40 +538,6 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
     with open(f'{dictionary_name }.pkl', 'wb') as f:
         pickle.dump(trace_meta, f)
 
-def standardize_extraction(signal,baseline_period= None,baseline_cutoff = 1, absolute = False):
-    """
-    Input
-        1. signal: 1D Array of calcium trace
-        2. baseline_period: A two-element vector with index of the start/end points of baseline period, default set as None (All signal considered as baseline)
-        3. baseline_cutoff: ratio from 0 to 1, determine the range of signals included as baseline range (data points below the assigned cutoff after normalized would be extracted, concatenated to a continuous baseline signal session)
-        4. absolute: Requirement for adjusting baseline_cutoff based on the min/max of input signal  
-    Output
-        1. Whole signal transformed into Z-score 
-        2. baseline_sig: Partial signal from original trace with value below cutoff, defined as baseline period 
-        3. ave: Average value of baseline period 
-        4. sd: Standard deviation of baseline period 
-    """
-    baseline_sig = signal
-    cutoff = baseline_cutoff if absolute else (np.max(signal)- np.min(signal))*baseline_cutoff + np.min(signal)
-
-    if not baseline_period == None:#Baseline period defined 
-        baseline_sig = signal[baseline_period[0]:baseline_period[1]]
-        ave, sd = baseline_sig.mean(), np.std(baseline_sig)
-    else:
-        baseline_sig = signal[np.where(signal < cutoff)[0][()]]
-        ave, sd = baseline_sig.mean(), np.std(baseline_sig)
-
-    return normalize(signal, ave, sd), baseline_sig, ave, sd 
-
-def start_end_index(time, start, pre,post, decimal = 0):
-    return [np.where(np.floor(time*(10**decimal))/10**decimal == np.floor(start-pre))[0].min(),\
-         np.where(np.floor(time*(10**decimal))/10**decimal == np.floor(start+post-1))[0].max()]
-
-def normalize(trace, dev, denominator): 
-    return np.array((trace - dev)/denominator, dtype = 'float')
-
-res_det = lambda r,thr: ['EX' if r > thr else 'INH' if r < -thr else 'NS'][0] #Response determination 
-
 #Functions for plotting
 ################################################################
 def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, signal, mice, state, start_delay, Total_duration, cross_boundary, raw_plot, save_raw_plot, save_table, save_directory):
@@ -696,6 +729,8 @@ def pool_response_class_pie(trace_meta, state_list, pie_color_rough, pie_color_d
     fig.tight_layout()
     os.chdir(save_directory)
     [fig.savefig(f'{plot_name}.png', dpi = 600, bbox_inches = 'tight') if save_plot else None]
+
+
 def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough, pie_color_detail, plot_name, save_plot,save_directory):
     # Plot- donut chart for individual results
     for m in np.unique(mice):
@@ -746,6 +781,7 @@ def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough,
             fig.tight_layout()
             os.chdir(save_directory)
             [fig.savefig(f'{m} - {plot_name}.png', dpi = 600, bbox_inches = 'tight') if save_plot else None]
+
 def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_save_name, save_plot, save_directory): 
     for i, s in enumerate(state_list):
         [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, trace_meta['Cross type'] == cr))[0] for cr in np.sort(np.unique(trace_meta['Cross type']))] #find cell responses with the same cross event, animal, and trial
@@ -812,6 +848,7 @@ def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_
                 ax.legend(loc = 2, frameon = False)
         os.chdir(save_directory)
         [f.savefig(f'{s} - {mean_trace_save_name}.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
+
 def pref_class_heatmap(state, trace_meta, cell_pref, cond_indx, uncond_indx,class_colors, save_name ,save_plot, save_directory):
     time = trace_meta['Trace time']
     type_indx  = [np.where(cell_pref == re)[0] for re in ['INH','EXT','NS']]
