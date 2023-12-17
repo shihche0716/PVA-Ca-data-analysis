@@ -1,4 +1,4 @@
-#Final editing: 20231212 17:54
+#Final editing: 20231217 23:56
 import numpy as np
 import pandas as pd 
 from matplotlib import pyplot as plt
@@ -154,18 +154,69 @@ def resample(x, num, t=None, axis=0, window=None, domain='time'):
         return y, new_t
 
 def norm(sig):
+    """
+    Inputs
+    -------
+    sig : 1-D array
+        The data to be normalized.
+    Returns
+    -------
+    normalized input signal
+    """
     min_s, max_s = np.array(sig).min() ,np.array(sig).max() 
     return (sig - min_s)/(max_s-min_s)
     
 def euclidian_distance(pos1,pos2):
+    """
+    Inputs
+    -------
+    pos1, pos2 : 1-D array 
+        denoting the coordinates of two points
+
+    Returns
+    -------
+    The euclidian distance between the two points
+    """
     return np.sqrt(sum([(pos1[i]**2 + pos2[i]**2) for i in range(2)]))
     
-def traj_analyze_CPP(data,f_name,formalin_side,gate_range,t_delay,crop_length, pref_side, plot_raw,save_plot,save_table):
-    
-    time = np.array(data[1:,0],dtype = 'float')-t_delay
-    crop_p = np.where(time < crop_length)[0].max()
-    #Extract X Y time series
-    X = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. X (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 #Normalized to the range of -1,1 
+def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
+                     crop_length, pref_side, plot_raw,save_plot,save_table):
+    """
+    Inputs
+    -------
+    data : 2-D array 
+        A table with Time, X position (Must have column name of "Pos. X (mm)"), Y position (Must have column name of "Pos. X (mm)") information included
+    f_name : string
+        Name of file in process
+    gate_range : [x range, y range]
+        Specifying the normalized range along horizontal or vertical direction in which border crossing event could be considered valid
+    t_delay : float/integer
+        Delay of trial initiation in seconds, used for realigning time
+    crop_length : float/integer
+        Total length of time included for analysis in seconds, data after specified time point will be cropped off
+    pref_side : "R" or "L"
+        Specifying the side of conditioning, if preferred side is left, x coordinates will be reversed in sign before annotating exploring side
+    plot_raw : Boolean
+        Whether or not to show the graphs demonstrating preprossesing outcomes, including correction of missing points, specifying exploring chamber, as well as labeling of border crossing events.
+    save_table : Boolean
+        Whether or not to export the trajectory processing output into a .csv file (With corrected time, X/Y position, exploring side, distance to center, crossing timing of two types of events)
+
+    Returns
+    -------
+    Plotting
+
+    output_dat : dictionary
+        Trajectory processing output (With corrected time, X/Y position, exploring side, distance to center, crossing timing of two types of events)
+
+    Notes
+    ------
+    Called internally by function "traj_trace_pair_process"
+    """
+
+    time = np.array(data[1:,0],dtype = 'float')-t_delay #Realign time 
+    crop_p = np.where(time < crop_length)[0].max() 
+    #Extract X Y time series, normalized to the range of -1,1, and remove data out of range
+    X = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. X (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 
     Y = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. Y (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2
     time = time[:crop_p]
 
@@ -173,7 +224,7 @@ def traj_analyze_CPP(data,f_name,formalin_side,gate_range,t_delay,crop_length, p
     dt = min(time[1:]-time[:-1])
     dis_indx = []
     for j,t in enumerate(time[1:]):
-        if t-time[j]> 2*dt:
+        if t-time[j]> 2*dt: #Any two data point with interval more than 2 times of the average interval will be considered as a gap and annotated
             dis_indx.append(j)
             
     if plot_raw:
@@ -183,7 +234,7 @@ def traj_analyze_CPP(data,f_name,formalin_side,gate_range,t_delay,crop_length, p
             a[j].plot(time,p,'-k',alpha = 0.6)
             a[j].hlines(0,0,max(time),color = 'red',linestyles = 'dotted')
             [a[j].fill_between([time[k],time[k+1]],-1,1,color = 'pink', alpha = 0.5) for k in dis_indx]
-            a[j].fill_between([0],0,0,color = 'pink', alpha = 0.5,label = 'Not tracked')
+            a[j].fill_between([0],0,0,color = 'pink', alpha = 0.5,label = 'Not tracked') #Specifying not tracked timing 
             a[j].set(ylabel = f"Normalized {['X','Y'][j]} position",
                     xlabel = "Time (s)")
             a[j].legend(loc = 3)
@@ -193,40 +244,41 @@ def traj_analyze_CPP(data,f_name,formalin_side,gate_range,t_delay,crop_length, p
         a[2].vlines(0,-.5,.5,color = 'red')
         a[2].spines['right'].set_visible(True)
         a[2].spines['top'].set_visible(True)
-        # f.tight_layout()
+
         f.suptitle(f'{f_name.split("cpp.txt")[0]}')
         [f.savefig(f'{f_name.split("cpp.txt")[0]} raw normalized trajectory.png', dpi = 300) if save_plot else None]
 
-    time_new , X_new, Y_new = time, X,Y
+    time_new , X_new, Y_new = np.copy(time), np.copy(X), np.copy(Y)
     inj_accum = 0
-    for k,j in enumerate(dis_indx):
-        time_new = np.insert(time_new,j+inj_accum+1,add:=np.arange(time[j],time[j+1],dt)[:])#Fill up time gaps with continuous linear sequence
-        #Fill up missing points with dicernable gap value 
-        X_new = np.insert(X_new,j+inj_accum+1,np.repeat(np.nan,len(add)))
-        Y_new = np.insert(Y_new,j+inj_accum+1,np.repeat(np.nan,len(add)))
+    for indx in dis_indx: #Run through all recorded gaps' start timing
+        #Fill up time gaps with continuous linear sequence
+        time_new = np.insert(time_new,indx+inj_accum+1,add:=np.arange(time[indx],time[indx+1],dt)[:])
+        #Fill up missing points with dicernable gap value (Nan)
+        X_new = np.insert(X_new,indx+inj_accum+1,np.repeat(np.nan,len(add)))
+        Y_new = np.insert(Y_new,indx+inj_accum+1,np.repeat(np.nan,len(add)))
         inj_accum += len(add)
         
     #detect chamber transition 
     # Acceptable y ,x range
-    gate_range = gate_range#[0.1,0.3]
     y_in_range = np.abs(Y_new) < gate_range[1]
     x_in_range = np.abs(X_new) < gate_range[0]
-    both_match = np.logical_and(x_in_range, y_in_range)
+    both_match = np.logical_and(x_in_range, y_in_range) #Timing in which animal locates in the border range
     #Potential border crossing event
-    #reverse crossing definition  base on preferred side 
+    #reverse crossing definition base on preferred side 
     pref_factor = (int(pref_side == 'R')-0.5)*2 #Right: 1, Left: -1
-    x_side = np.array([np.nan if np.isnan(x) else 1 if x > 0 else 0 for x in X_new]) #Whether the animal position is in the right chamber (1) or left chamber (0)
-    episode = (x_side[1:] - x_side[:-1])*pref_factor #Reverse the 1, -1 correspondence based on preferred chamber side 
-
+    #Whether the animal position is in the right chamber (1) or left chamber (0)
+    x_side = np.array([np.nan if np.isnan(x) else 1 if x > 0 else 0 for x in X_new])
+    #Reverse the 1, -1 correspondence based on preferred chamber side 
+    episode = (x_side[1:] - x_side[:-1])*pref_factor
     cond_enter = np.where(np.logical_and(episode == 1 ,both_match[:-1]))[0]
     uncond_enter = np.where(np.logical_and(episode == -1,both_match[:-1]))[0]
-
+    #Calibrate the distance of animal to the center of exploring space (in arbitrary units)
     dist = [euclidian_distance([x,y],[0,0]) for x,y in zip(X_new,Y_new)]
     
     if plot_raw:
         plt.figure(figsize = (15,5))
         spec = gridspec.GridSpec(ncols=4, nrows=2, width_ratios=[2,2,1,1])
-        
+        # Top left panel, plot out X coordinates with exploring side, corssing events labeled
         ax = plt.subplot(spec[0,:2])
         ax.plot(time_new,X_new,'-k')
         ax.set(xlim=(0,max(time_new)),
@@ -241,17 +293,19 @@ def traj_analyze_CPP(data,f_name,formalin_side,gate_range,t_delay,crop_length, p
         ax.fill_between([0],0,0,color = 'pink',label = 'Left chamber')
         ax.hlines(0,0,max(time_new),color = 'black',linestyles='dashed')
         ax.legend(loc = 3)
-        
+        # Left panel, plot out the 2D trajectory with positions of crossing event occurrences labeled
         ax1 = plt.subplot(spec[:,-2:])
+        #Trajectory
         ax1.plot(X_new,Y_new,alpha = 0.5)
-        ax1.set(ylabel= 'Normaized Y position', xlabel ='Normaized X position')   
+        ax1.set(ylabel= 'Normaized Y position', xlabel ='Normaized X position')  
+        #Crossing events 
         ax1.scatter(X_new[cond_enter],Y_new[cond_enter],c = 'red',label='Cond. enter')
         ax1.scatter(X_new[uncond_enter],Y_new[uncond_enter],c = 'green',label = 'Cond. exit')
         ax1.legend(loc=2)
         ax1.spines['right'].set_visible(True)
         ax1.spines['top'].set_visible(True)
 
-        #Distance to center
+        #Left bottom panel, Distance to center
         ax2 = plt.subplot(spec[1,:2])
         ax2.plot(time_new, dist)
         ax2.set(xlim =(0,max(time_new)),xlabel='Time (s)',ylabel='Distance to center')
@@ -287,6 +341,7 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
                              start_delay, Total_duration, cross_boundary, \
                                 exclude_animal, raw_plot, save_raw_plot, save_table, \
                                     save_dir, dictionary_name):
+    
     #Data preperation 
     os.chdir(calciumpath)#For direct preprocessing 
     file_list_Ca = [_ for _ in os.listdir(calciumpath) if _.endswith('.csv')]
@@ -337,7 +392,7 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
             print('Animal excluded')
             continue # skip this file
 
-        traj_metadata = traj_analyze_CPP(data,txt_file,formalin_side,cross_boundary,start_delay,Total_duration,formalin_side[traj_mice],raw_plot,save_raw_plot, save_table)
+        traj_metadata = traj_analyze_CPP(data,txt_file,cross_boundary,start_delay,Total_duration,formalin_side[traj_mice],raw_plot,save_raw_plot, save_table)
         
         time, X,Y , cond_ent, cond_ext , dist_border, side = traj_metadata['Time (s)'],traj_metadata['X position'],traj_metadata['Y position'],\
         traj_metadata['Cond. enter Event timing (s)'],traj_metadata['Cond. exit Event timing (s)'], traj_metadata['Distance to center'],  traj_metadata['Side (U:-1 C:1)']
@@ -450,7 +505,8 @@ def normalize(trace, dev, denominator):
 
 res_det = lambda r,thr: ['EX' if r > thr else 'INH' if r < -thr else 'NS'][0] #Response determination 
 
-#Plotting
+#Functions for plotting
+################################################################
 def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, signal, mice, state, start_delay, Total_duration, cross_boundary, raw_plot, save_raw_plot, save_table, save_directory):
     os.chdir(trajpath)
     for i, txt_file in enumerate(np.sort(file_list_traj)):
