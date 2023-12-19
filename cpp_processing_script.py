@@ -245,9 +245,8 @@ def normalize(trace, dev, denominator):
 
 res_det = lambda r,thr: ['EX' if r > thr else 'INH' if r < -thr else 'NS'][0] #Response determination 
 
-
-def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
-                     crop_length, pref_side, plot_raw,save_plot,save_table):
+def traj_analyze_CPP(data,f_name,gate_range,t_delay,f_rate,\
+                     crop_length, pref_side, plot_raw,save_plot,save_table,save_dir):
     """
     Inputs
     -------
@@ -259,14 +258,20 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
         Specifying the normalized range along horizontal or vertical direction in which border crossing event could be considered valid
     t_delay : float/integer
         Delay of trial initiation in seconds, used for realigning time
+    f_rate : integer
+        Frame rate of imaging & video capturing (supposed to be synchronized)
     crop_length : float/integer
         Total length of time included for analysis in seconds, data after specified time point will be cropped off
     pref_side : "R" or "L"
         Specifying the side of conditioning, if preferred side is left, x coordinates will be reversed in sign before annotating exploring side
     plot_raw : Boolean
         Whether or not to show the graphs demonstrating preprossesing outcomes, including correction of missing points, specifying exploring chamber, as well as labeling of border crossing events.
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
     save_table : Boolean
         Whether or not to export the trajectory processing output into a .csv file (With corrected time, X/Y position, exploring side, distance to center, crossing timing of two types of events)
+    save_dir : r-string
+        The directory in which the output will be saved
 
     Returns
     -------
@@ -279,13 +284,22 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
     ------
     Called internally by function "traj_trace_pair_process"
     """
-
-    time = np.array(data[1:,0],dtype = 'float')-t_delay #Realign time 
-    crop_p = np.where(time < crop_length)[0].max() 
-    #Extract X Y time series, normalized to the range of -1,1, and remove data out of range
-    X = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. X (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 
-    Y = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. Y (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2
-    time = time[:crop_p]
+    ####
+    #Add alternative input file types (ezTrack or Toxtrac)
+    if '_LocationOutput' in f_name: #ezTrack file export format
+        time = np.array(data[1:, np.where(data[:,0] == 'Frame')[0][0]], dtype = 'float') - t_delay / f_rate 
+        crop_p = crop_length * f_rate
+        #Extract X Y time series, normalized to the range of -1,1, and remove data out of range
+        X = (norm(np.array(data[1:,np.where(data[0,:] == 'X')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 
+        Y = (norm(np.array(data[1:,np.where(data[0,:] == 'Y')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 
+        time = time[:crop_p]
+    else: #toxtrac 
+        time = np.array(data[1:,0],dtype = 'float')-t_delay #Realign time 
+        crop_p = np.where(time < crop_length)[0].max() 
+        #Extract X Y time series, normalized to the range of -1,1, and remove data out of range
+        X = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. X (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2 
+        Y = (norm(np.array(data[1:,np.where(data[0,:] == 'Pos. Y (mm)')[0]],dtype = 'float').flatten())-.5)[:crop_p]*2
+        time = time[:crop_p]
 
     #Find out discontinuous time points 
     dt = min(time[1:]-time[:-1])
@@ -313,6 +327,7 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
         a[2].spines['top'].set_visible(True)
 
         f.suptitle(f'{f_name.split("cpp.txt")[0]}')
+        os.chdir(save_dir)
         [f.savefig(f'{f_name.split("cpp.txt")[0]} raw normalized trajectory.png', dpi = 300) if save_plot else None]
 
     time_new , X_new, Y_new = np.copy(time), np.copy(X), np.copy(Y)
@@ -380,6 +395,7 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
 
         plt.suptitle(f'{f_name.split("cpp.txt")[0]}\nConditioned side: {pref_side}')
         plt.tight_layout()
+        os.chdir(save_dir)
         [plt.savefig(f'{f_name.split("cpp.txt")[0]} Labeled trajectory.png', dpi = 300) if save_plot else None]
     
     #Prepare for data saving 
@@ -394,6 +410,7 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
     }
 
     if save_table:
+        os.chdir(save_dir)
         output_df = output_dat.copy()
         #Fill up empty space for creating data frame
         output_df["Cond. exit Event timing (s)"] = np.insert(np.array(time_new[uncond_enter],dtype = 'str'),len(uncond_enter),np.repeat(' ',len(time_new)- len(uncond_enter)))
@@ -404,28 +421,70 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,\
         
     return(output_dat)
 
-def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post, sprt, thr,\
-                             start_delay, Total_duration, cross_boundary, \
-                                exclude_animal, raw_plot, save_raw_plot, save_table, \
-                                    save_dir, dictionary_name):
-    
+def traj_trace_pair_process(calciumpath, trajpath, tracking_source, formalin_side, t_pre, t_post, sprt, thr, \
+                            start_delay, Total_duration, cross_boundary, \
+                            exclude_animal, raw_plot, save_raw_plot, save_table, \
+                            save_dir, dictionary_name):
+    """
+    Inputs
+    -------
+    calciumpath : r-string
+        Directory at which "preprocessed" calcium signals are saved (Shall be .csv file)
+    trajpath : r-string
+        Directory at which tracked trajectory are saved (in .csv or .txt format)
+    tracking source : 'Toxtrac' or 'ezTrack'
+        Specify the software used for tracking
+    formalin_side : dictionary
+        Specifying the formalin conditioned side for every animal ('R' or 'L')
+    t_pre : float
+        Length of time to include before chamber crossing event
+    t_post : float
+        Length of time to include after chamber crossing event
+    sprt : integer
+        Sampling rate or frame rate of calcium imaging or behavioral video capturing (Hz)
+    thr : float
+        Minimum mean difference in activity after crossing event to identify cross-repsonsive cells
+    start_delay : float/integer
+        Delay of trial initiation in seconds, used for realigning time
+    Total_duration : float/integer
+        Total length of time included for analysis in seconds, data after specified time point will be cropped off
+    cross_boundary : [x range, y range]
+        Specifying the normalized range along horizontal or vertical direction in which border crossing event could be considered valid
+    exclude_animal : list
+        List of animal IDs to be excluded from analysis
+    raw_plot : Boolean
+        Whether or not to show the graphs demonstrating preprossesing outcomes, including correction of missing points, specifying exploring chamber, as well as labeling of border crossing events.
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_table : Boolean
+        Whether or not to export the "trajectory processing" output into a .csv file (With corrected time, X/Y position, exploring side, distance to center, crossing timing of two types of events)
+    save_dir : r-string
+        The directory in which the output will be saved
+    dictionary_name : string
+        The name for the exported dictionary (.pkl file) with CPP metadata 
+
+    Returns
+    -------
+    Plotting
+
+    Export Dictionary with CPP metadata
+    """
     #Data preperation 
-    os.chdir(calciumpath)#For direct preprocessing 
+    #Calcium single
+    os.chdir(calciumpath)#Move to directory with calcium traces
     file_list_Ca = [_ for _ in os.listdir(calciumpath) if _.endswith('.csv')]
 
     data_Ca = pd.read_csv(file_list_Ca[0],header = None, low_memory = False).values
 
     cell_ID = data_Ca[np.where(data_Ca[:,0] == 'Cell ID')[0].min(),1:]
     file_name = data_Ca[np.where(data_Ca[:,0] == 'File name')[0],1:][0]
-
+    #Determine mouse ID & chornic pain stage from file name
     state = np.array([f_n.split(' ')[-1].removesuffix('.csv') for f_n in file_name])
     mice =  np.array([file_name[i].split(' ')[1] for i in range(len(file_name))],dtype = 'str')
 
-    Ca_time = np.array(data_Ca[np.where(data_Ca[:,0] == 'Time (s)')[0][0]+1:,0],dtype = 'float')
-    signal =  np.array(data_Ca[np.where(data_Ca[:,0] == 'Time (s)')[0][0]+1:,1:],dtype = 'float')
-    
-    os.chdir(trajpath)#move to diractory with trajectory
-    file_list_traj = [_ for _ in os.listdir(trajpath) if _.endswith('.txt')]
+    signal_start_index = np.where(data_Ca[:,0] == 'Time (s)')[0][0]+1
+    Ca_time = np.array(data_Ca[signal_start_index:,0],dtype = 'float')
+    signal =  np.array(data_Ca[signal_start_index:,1:],dtype = 'float')
 
     trace_meta = {
         'Cell ID':[],
@@ -441,25 +500,42 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
         'Cham mean':[]
     }
 
-    for i, txt_file in enumerate(np.sort(file_list_traj)):
-        print(f"File in process: {txt_file}")
-        #read in txt file 
-        data = []
-        with open(txt_file, newline = '') as f:                                                                                          
-            f_reader = csv.reader(f, delimiter='\t')
-            for l in f_reader:
-                data.append(l)
-        data = np.array(data)
+    #Trajectory processing
+    if tracking_source == 'Toxtrac':
+        file_list_traj = [_ for _ in os.listdir(trajpath) if _.endswith('.txt')]
+        
+    elif tracking_source == 'ezTrack':
+        file_list_traj = [_ for _ in os.listdir(trajpath) if _.endswith('.csv')]
+
+    for i, traj_file in enumerate(np.sort(file_list_traj)):
+        os.chdir(trajpath)#move to diractory with tracked trajectory
+        print(f"File in process: {traj_file}")
+
+        if tracking_source == 'Toxtrac':
+            data = []
+            #read in txt file 
+            with open(traj_file, newline = '') as f:                                                                                          
+                f_reader = csv.reader(f, delimiter='\t')
+                for l in f_reader:
+                    data.append(l)
+            data = np.array(data)
+            traj_state = traj_file.split("cpp.txt")[0].split(' ')[-2]
+            traj_mice = traj_file.split("cpp.txt")[0].split(' ')[0]
+
+        elif tracking_source == 'ezTrack':
+            #read in csv file
+            data = pd.read_csv(traj_file,header = None, low_memory = False).values
+            traj_state = traj_file.split("cpp_LocationOutput.csv")[0].split(' ')[-2]
+            traj_mice = traj_file.split("cpp_LocationOutput.csv")[0].split(' ')[0]
         
         #Trajectory processing & crossing events searching
-        
-        traj_state = txt_file.split("cpp.txt")[0].split(' ')[-2]
-        traj_mice = txt_file.split("cpp.txt")[0].split(' ')[0]
         if traj_mice in exclude_animal:
             print('Animal excluded')
             continue # skip this file
 
-        traj_metadata = traj_analyze_CPP(data,txt_file,cross_boundary,start_delay,Total_duration,formalin_side[traj_mice],raw_plot,save_raw_plot, save_table)
+        traj_metadata = traj_analyze_CPP(data,traj_file,cross_boundary,start_delay,sprt,
+                                         Total_duration,formalin_side[traj_mice],raw_plot,
+                                         save_raw_plot, save_table, save_dir)
         
         time, X,Y , cond_ent, cond_ext , dist_border, side = traj_metadata['Time (s)'],traj_metadata['X position'],traj_metadata['Y position'],\
         traj_metadata['Cond. enter Event timing (s)'],traj_metadata['Cond. exit Event timing (s)'], traj_metadata['Distance to center'],  traj_metadata['Side (U:-1 C:1)']
@@ -474,7 +550,7 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
                 if i == 0 else com_t][0]
         trace_meta['Trace time'] = com_t
     #-----------------------------------------------------
-        for ci, cell in enumerate(match_cell):
+        for cell in match_cell:
             trace = resample(signal[:,cell],len(time)) #Resample to the same length
             #Crossing events 
             cross_type = np.concatenate([np.repeat('ENT',len(cond_ent)),np.repeat('EXT',len(cond_ext))])
@@ -506,7 +582,7 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
             trace_meta['Cham'].append(['Cond','Uncond']) #side
             trace_meta['Cham mean'].append([trace[np.where(X>0)[0]].mean(),trace[np.where(X<0)[0]].mean()]) #Chamber-averaged value
 
-            #    Plotting out averaged traces of responsive cells
+            #  Plotting out averaged traces of responsive cells
             if (np.abs(mean_res) > thr).sum() >= 1 and raw_plot: #Either crossing event shows large enough response, and plotting is allowed
                 fig,ax = plt.subplots(1,2)
                 for t,cross in enumerate(['ENT','EXT']):
@@ -541,8 +617,11 @@ def traj_trace_pair_process(calciumpath, trajpath, formalin_side, t_pre, t_post,
 #Functions for plotting
 ################################################################
 def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, signal, mice, state, start_delay, Total_duration, cross_boundary, raw_plot, save_raw_plot, save_table, save_directory):
+    ###############################
+    #Specify shade colors
+    ###############################
     os.chdir(trajpath)
-    for i, txt_file in enumerate(np.sort(file_list_traj)):
+    for txt_file in np.sort(file_list_traj):
         print(f"File in process: {txt_file}")
         #read in txt file 
         data = []
@@ -783,16 +862,16 @@ def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough,
             [fig.savefig(f'{m} - {plot_name}.png', dpi = 600, bbox_inches = 'tight') if save_plot else None]
 
 def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_save_name, save_plot, save_directory): 
-    for i, s in enumerate(state_list):
+    for s in state_list:
         [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, trace_meta['Cross type'] == cr))[0] for cr in np.sort(np.unique(trace_meta['Cross type']))] #find cell responses with the same cross event, animal, and trial
         cross_res, res_match = [], []
         match_trace_ext, match_trace_ent = [], [] #Cell traces for certain response combination 
 
         #prepare cell traces 
-        for k, comb in enumerate(itertools.product(['EX','INH','NS'], repeat  = 2)): 
-            match = np.where(np.logical_and(trace_meta['Response type'][ent_indx] == comb[0],trace_meta['Response type'][ext_indx] == comb[1]))[0]  #Find cell index with matched response type 
-            if len(match)>0: #Exclude response combination with no matched cell
-                    cross_res.append(f"in_{comb[0]}_out_{comb[1]}") #Document response combination 
+        for ra , rb in itertools.product(['EX','INH','NS'], repeat  = 2): 
+            match = np.where(np.logical_and(trace_meta['Response type'][ent_indx] == ra,trace_meta['Response type'][ext_indx] == rb))[0]  #Find cell index with matched response type 
+            if len(match) > 0: #Exclude response combination with no matched cell
+                    cross_res.append(f"in_{ra}_out_{rb}") #Document response combination 
                     res_match.append(match) 
                     match_trace_ent.append(trace_meta['Extracted trace mean'][ent_indx][match])
                     match_trace_ext.append(trace_meta['Extracted trace mean'][ext_indx][match])
@@ -874,7 +953,7 @@ def pref_class_heatmap(state, trace_meta, cell_pref, cond_indx, uncond_indx,clas
             ax.fill_between(time, ave+heatmap_trace.std(axis = 0)/np.sqrt(len(indx)),\
                             ave-heatmap_trace.std(axis = 0)/np.sqrt(len(indx)),\
                             facecolor = class_colors[j], alpha = .1)
-            if j ==2:
+            if j == 2:
                 ax.set(xticks = np.linspace(round(time.min()),round(time.max()),5,dtype = 'float'), 
                     xlim = (round(time.min()), round(time.max())),
                     xlabel='Time from event (s)',

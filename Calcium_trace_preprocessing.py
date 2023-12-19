@@ -254,7 +254,7 @@ def resample(x, num, t=None, axis=0, window=None, domain='time'):
                 raise ValueError('window must have the same length as data')
             W = window
         else:
-            W = sp_fft.ifftshift(get_window(window, Nx))
+            W = sp_fft.ifftshift(signal.get_window(window, Nx))
 
         newshape_W = [1] * x.ndim
         newshape_W[axis] = X.shape[axis]
@@ -337,7 +337,7 @@ def butter_lowpass(cutoff, fs, order=5):
 def butter_lowpass_filter(data, cutoff, fs, order=5):
     b, a = butter_lowpass(cutoff, fs, order=order)
     #y = lfilter(b, a, data)
-    y = filtfilt(b, a, data)
+    y = signal.filtfilt(b, a, data)
     return y
 
 # AUC calibration (linear trapezoid method)

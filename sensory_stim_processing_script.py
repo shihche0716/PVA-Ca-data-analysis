@@ -103,11 +103,11 @@ def star_report(p_value):
 #######################################################################################
 #Data preparation
 
-def generate_sensory_metadata(file_dir, file_name):
+def generate_sensory_metadata(file_dir, file_name, bin_num = 6):
     data = pd.read_csv(os.path.join(file_dir,file_name),header = None, low_memory=False).values
-
-    bin_start_index = np.where(data[:,0] == 'Bin SNR')[0][0]+1
-    trace_start_index = np.where(data[:,0] == 'Time (s)')[0][0]+1
+    row_names = data[:,0]
+    bin_start_index = np.where(np.array(['Bin SNR' in tt for tt in row_names]))[0][0]+1
+    trace_start_index = np.where(row_names == 'Time (s)')[0][0]+1
 
     metadata = {
         'Cell ID': data[1,1:],
@@ -115,7 +115,7 @@ def generate_sensory_metadata(file_dir, file_name):
         'File name': data[0,1:],
         'Trace time': np.array(data[trace_start_index:, 0] ,dtype = 'float'), 
         'Calcium trace': np.array(data[trace_start_index:, 1:],dtype = 'float'),
-        'Standardized bin': np.array(data[bin_start_index:bin_start_index+5,1:],dtype = 'float'),
+        'Standardized bin': np.array(data[bin_start_index:bin_start_index+bin_num-1,1:],dtype = 'float'),
         'AUC': np.array(data[6,1:],dtype = 'float'),
         'Baseline AUC': np.array(data[5,1:],dtype = 'float'),
         'Baseline mean': np.array(data[3,1:],dtype = 'float'),
@@ -162,20 +162,20 @@ def neuron_classification_bin(metadata, bin_thres, bin_num_cutoff,
 def sort_stim_pref_response_heatmap(data,uni_ID, stimulus,state, state_type, min_criteria, \
                                     col_range, chosen_stim, cbar_label , save_text, pair_cell,save_fig, save_dir):
     '''
-    Input:≤
-    data: 1-D array of stimulus responses
-    uni_ID: 1-D string array of unique neural ID (animal ID + cell ID)
-    stimulus: 1-D array of stimulus encountered
-    state: 1-D array of the treatment type of corresponding trial
-    state_type: a list of treatments indlucded in analysis (order specified)
-    chosen_stim: a list of stimuli included in analysis (order specified)
-    pair_cell: Boolean, whether cell index of other column shall match with the first column
+    Input:
+    data : 1-D array of stimulus responses
+    uni_ID : 1-D string array of unique neural ID (animal ID + cell ID)
+    stimulus : 1-D array of stimulus encountered
+    state : 1-D array of the treatment type of corresponding trial
+    state_type : a list of treatments indlucded in analysis (order specified)
+    chosen_stim : a list of stimuli included in analysis (order specified)
+    pair_cell : Boolean, whether cell index of other column shall match with the first column
 
-    min_criteria: a float specifying the minimum value for stimulus-responses to be defined as responsive
-    col_range: [min, max], a 2-elements vector specifying the range of heatmap colorbar 
-    cbar_label: a string placed above colorbar denoting the unit of cellular responses (Z-score, Normalized activity etc.)
-    save_text: Prefix for the filename of saved figure
-    save_fig: Boolean to save the figure
+    min_criteria : a float specifying the minimum value for stimulus-responses to be defined as responsive
+    col_range : [min, max], a 2-elements vector specifying the range of heatmap colorbar 
+    cbar_label : a string placed above colorbar denoting the unit of cellular responses (Z-score, Normalized activity etc.)
+    save_text : Prefix for the filename of saved figure
+    save_fig : Boolean to save the figure
 
     '''
     #Adjusting optimal size of figure  
