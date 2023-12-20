@@ -1,4 +1,4 @@
-#Final edit 20231215 21:03
+#Final edit 20231220 16:03
 import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
@@ -15,8 +15,6 @@ from matplotlib.colors import ListedColormap
 
 from pylab import *
 # Set the ticks and label of figure
-
-# plt.rcParams.update(matplotlib.rcParamsDefault)
 params = {        
          'axes.spines.right': False,
          'axes.spines.top': False,
@@ -73,20 +71,32 @@ def binning_seg(data,sprt,bsz,min_snr,base_ave = None, base_sd = None, norm_meth
     return tt, min_snr, np.array(cnt, dtype = 'float'), ext_seg, int_seg
 
 def normalize(trace, dev, denominator): 
+    '''
+    Normalization/standardization with subtraction & division tergat specified
+    '''
     return np.array((trace - dev)/denominator, dtype = 'float')
 
 def neuron_res(ext_seg,inh_seg,cutoff):
+    '''
+    Classify neuron base on amount and type of responsinve binned activity
+    '''
     if len(ext_seg) == len(inh_seg):
-        res = ['EXT' if ext_seg[i]>= cutoff else 'INH' if inh_seg[i] >= cutoff else 'NR' for i in range(len(ext_seg))]
+        res = ['EXT' if ext_seg[i] >= cutoff else 'INH' if inh_seg[i] >= cutoff else 'NR' for i in range(len(ext_seg))]
     else: 
         print('Unmatched amount between length of EXT/INH segments!')
     return np.array(res,dtype = 'str') 
 
 def neuron_res_Z(diff,cutoff):
-    res = ['EXT' if diff[i]>= cutoff else 'INH' if diff[i] < -cutoff else 'NR' for i in range(len(diff))]
+    '''
+    Classify neuron by thresholding the input activity "diff"
+    '''
+    res = ['EXT' if diff[i] >= cutoff else 'INH' if diff[i] < -cutoff else 'NR' for i in range(len(diff))]
     return np.array(res,dtype = 'str')
 
 def entropy(stim_res):
+    '''
+    Calibrate normalizaed entropy
+    '''
     p_logp = []
     K = 1/(len(stim_res)*(1/len(stim_res))*(-np.log(1/len(stim_res))))#Maximum entropy - calibrate entropy scaling factor 
     for re in stim_res:
@@ -95,15 +105,25 @@ def entropy(stim_res):
     return -K*(sum(p_logp))
 
 def noise_to_signal(stim_res):
+    '''
+    Calibrate noise-to-signal ratio
+    '''
     sort_res = stim_res[np.argsort(stim_res)]
     return sort_res[-2]/sort_res[-1]
+
 def star_report(p_value):
+    '''
+    Convert p-value to string annotation
+    '''
     star = ['***' if p_value < 0.001 else '**' if p_value<0.01 else '*' if p_value<0.05 else 'N.S']
     return star[0]
 #######################################################################################
 #Data preparation
 
 def generate_sensory_metadata(file_dir, file_name, bin_num = 6):
+    '''
+    Summarize preprocessed extraction file into readable dictionary
+    '''
     data = pd.read_csv(os.path.join(file_dir,file_name),header = None, low_memory=False).values
     row_names = data[:,0]
     bin_start_index = np.where(np.array(['Bin SNR' in tt for tt in row_names]))[0][0]+1
@@ -134,6 +154,9 @@ def generate_sensory_metadata(file_dir, file_name, bin_num = 6):
 
 def neuron_classification_bin(metadata, bin_thres, bin_num_cutoff, 
                               save_prefix, export, save_dir, class_annot = ['INH', 'EXT', 'NR']):
+    '''
+    Classify neurons base on bin activity, with classification results exported
+    '''
     active_bin, inhibited_bin = (metadata['Standardized bin']>=bin_thres).sum(axis =0) , \
     (metadata['Standardized bin']<-bin_thres).sum(axis = 0) # Count responsive bin  baseed on 'thres'
 
@@ -162,21 +185,38 @@ def neuron_classification_bin(metadata, bin_thres, bin_num_cutoff,
 def sort_stim_pref_response_heatmap(data,uni_ID, stimulus,state, state_type, min_criteria, \
                                     col_range, chosen_stim, cbar_label , save_text, pair_cell,save_fig, save_dir):
     '''
-    Input:
-    data : 1-D array of stimulus responses
-    uni_ID : 1-D string array of unique neural ID (animal ID + cell ID)
-    stimulus : 1-D array of stimulus encountered
-    state : 1-D array of the treatment type of corresponding trial
-    state_type : a list of treatments indlucded in analysis (order specified)
-    chosen_stim : a list of stimuli included in analysis (order specified)
-    pair_cell : Boolean, whether cell index of other column shall match with the first column
-
-    min_criteria : a float specifying the minimum value for stimulus-responses to be defined as responsive
-    col_range : [min, max], a 2-elements vector specifying the range of heatmap colorbar 
-    cbar_label : a string placed above colorbar denoting the unit of cellular responses (Z-score, Normalized activity etc.)
-    save_text : Prefix for the filename of saved figure
-    save_fig : Boolean to save the figure
-
+    Inputs
+    --------------------
+    data : 1-D array
+        Stimulus responses
+    uni_ID : 1-D string array 
+        Unique neural ID (animal ID + cell ID)
+    stimulus : 1-D array
+        Stimulus encountered
+    state : 1-D array 
+        The treatment type of corresponding trial
+    state_type : list
+        treatments indlucded in analysis (order specified)
+    chosen_stim : list 
+        Stimuli included in analysis (order specified)
+    pair_cell : Boolean
+        whether cell index of other column shall match with the first column
+    min_criteria : float 
+        Specifying the minimum value for stimulus-responses to be defined as responsive
+    col_range : [min, max] 
+        a 2-elements vector specifying the range of heatmap colorbar 
+    cbar_label : String 
+        String placed above colorbar denoting the unit of cellular responses (Z-score, Normalized activity etc.)
+    save_text : String
+        Prefix for the filename of saved figure
+    save_fig : Boolean 
+        Wheter or not to save the figure
+    save_dir : r-string
+        Directory for figure to export
+    
+    Returns
+    --------------------
+    Plotting
     '''
     #Adjusting optimal size of figure  
     f, ax = plt.subplots(nrows = 1, ncols = len(state_type),figsize=(4*len(state_type)+.5,5))
@@ -192,7 +232,7 @@ def sort_stim_pref_response_heatmap(data,uni_ID, stimulus,state, state_type, min
         norm_sig = data[st_indx]
         total_s = []
         #Generate matrix for heatmap
-        keep_cell = np.array([sum([np.where(np.logical_and(uni_ID[st_indx] == ci,stim == s))[0].size >0\
+        keep_cell = np.array([sum([np.where(np.logical_and(uni_ID[st_indx] == ci,stim == s))[0].size > 0\
                          for s in chosen_stim])== len(chosen_stim) for ci in np.unique(uni_ID[st_indx])]) #Remove cells with missing value
         cell_in_keep = np.array([c in np.unique(uni_ID[st_indx])[keep_cell] for c in uni_ID[st_indx]])
 
@@ -225,6 +265,7 @@ def sort_stim_pref_response_heatmap(data,uni_ID, stimulus,state, state_type, min
             else: 
                 norm_sort = np.c_[norm_sort,sort_pref_norm_res]
                 nr_units = np.c_[nr_units,sort_pref_norm[:,stim_sort_NR_indx]]
+
         #Combine Non-responsive units with original heatmap 
         class_amount.append(len(nr_indx))
         norm_sort = np.c_[norm_sort,nr_units]
@@ -258,19 +299,40 @@ def sort_stim_pref_response_heatmap(data,uni_ID, stimulus,state, state_type, min
     os.chdir(save_dir)
     if save_fig:
         f.savefig(f'{save_text} Normalized res combined {"- Paired " if pair_cell else ""}.png', bbox_inches='tight',dpi = 400)
-        # #Save results as csv file for replotting 
-        # df = np.c_[G_range,np.array(exp_dat)]
-        # fst_r =np.insert(np.array(np.arange(0,301), dtype = 'str'),0,'G_mM\K(TALK)_pS')
-        # df = np.r_[np.reshape(fst_r, (1,fst_r.size)),\
-        #     np.array(df, dtype = 'str')]
-        # df = pd.DataFrame(np.array(df, dtype = 'str'))
-        # os.chdir(save_dir)
-        # df.to_csv(f"gKCa = {[10,200][j]}," + "Mean cytosolic Ca level (uM) vs tuning.csv" , index = False, header =False)
     f.show()
 
 def response_stack_bar(neuron_class,metadata, spec_state_types, spec_stim_types, fig_ratio, bar_width, \
-                       bar_color, save_prefix,save_plot, save_dir, class_annot = ['EXT', 'INH', 'NR']):
-
+                       bar_color, save_prefix, save_plot, save_dir, class_annot = ['EXT', 'INH', 'NR']):
+    '''
+    Inputs
+    --------------------
+    neuron-class : 1-D array
+        Neural classification results
+    metadata : dictionary
+        Metadata of sensory stimulus-triggered responses
+    spec_state_types : 1-D array
+        List of CP states included in analysis
+    spec_stim_types : 1-D array
+        List of sensory stimuli included in analysis
+    fig_ratio : [width, height]
+        Specification of plot size & shape
+    bar_width : float
+        Width of the stack bar
+    bar_color : list with the lenght of 3
+        Color representing excited, inhibited, no response cells, respectively
+    save_prefix : string
+        Prefix of saved file name (figure & exported table)
+    col_range : [min, max] 
+        a 2-elements vector specifying the range of heatmap colorbar 
+    save_plot : Boolean 
+        Wheter or not to save the figure
+    save_dir : r-string
+        Directory for figure to export
+    
+    Returns
+    --------------------
+    Plotting
+    '''
     fig= plt.figure(figsize = fig_ratio)
     gs = gridspec.GridSpec(int(np.ceil(len(spec_stim_types)/4)),4)
 
@@ -321,7 +383,7 @@ def response_stack_bar(neuron_class,metadata, spec_state_types, spec_stim_types,
                title =f'{stim}\n\n')
         [ax.legend(bbox_to_anchor=(1,1), loc=2, frameon = False) if i == len(spec_stim_types)-1 else None]#Show label only in the last graph 
         
-        #Statistics
+        #Statistics - Chi-square of percentage
         ref = np.array([ext_ratio[0],inh_ratio[0],nr_ratio[0]])
 
         ratio_summary['Chi-square statistics (with first group)'].append('ref')
@@ -336,17 +398,34 @@ def response_stack_bar(neuron_class,metadata, spec_state_types, spec_stim_types,
             ratio_summary['Annotation'].append(annot)
             #Add annotation for statistical test result
             ax.text(j,105,annot,horizontalalignment='center') 
-
     fig.tight_layout()
+
     os.chdir(save_dir)
     #Convert dictionary to csv
     df = pd.DataFrame.from_dict(ratio_summary)
     df.to_csv('Responsive ratio ref data table.csv', index = False, header = True)
 
     [fig.savefig(f'{save_prefix}responsive ratio stack bar.png',dpi = 600) if save_plot else None]
-#20230523 new func 
+
 
 def all_stim_heatmap(signal, metadata, save_plot, save_dir):
+    '''
+    Plot out the "sorted" activity heatmap corresponding to every included stimulus & CP state
+    Inputs
+    --------------------
+    signal : 2-D array
+        Cell traces of all neurons to all stimuli
+    metadata : dictionary
+        Metadata of sensory stimulus-triggered responses
+    save_plot : Boolean 
+        Wheter or not to save the figure
+    save_dir : r-string
+        Directory for figure to export
+    
+    Returns
+    --------------------
+    Plotting
+    '''
     state_types = metadata['Unique state list']
     stim_types = metadata['Unique stim list']
     #Data preparation 
@@ -395,6 +474,24 @@ def all_stim_heatmap(signal, metadata, save_plot, save_dir):
     [f.savefig('All stim heatmap.png', dpi = 700) if save_plot else None]
 
 def all_stim_heatmap_ind(signal, metadata, save_plot, save_dir):
+    '''
+    Plot out the "sorted" activity heatmap corresponding to neurons response (from the same animal) to every included stimulus & CP state
+    
+    Inputs
+    --------------------
+    signal : 2-D array
+        Cell traces of all neurons to all stimuli
+    metadata : dictionary
+        Metadata of sensory stimulus-triggered responses
+    save_plot : Boolean 
+        Wheter or not to save the figure
+    save_dir : r-string
+        Directory for figure to export
+    
+    Returns
+    --------------------
+    Plotting
+    '''
     state_types = metadata['Unique state list']
     stim_types = metadata['Unique stim list']
     #Data preparation 
@@ -449,6 +546,32 @@ def all_stim_heatmap_ind(signal, metadata, save_plot, save_dir):
 
 
 def cell_subset_heatmap(signal, metadata, neuron_class, net_response , spec_stim_types, spec_state_types, group_color, save_plot, save_dir):
+    '''
+    Inputs
+    --------------------
+    signal : 2-D array
+        Cell traces of all neurons to all stimuli
+    metadata : dictionary
+        Metadata of sensory stimulus-triggered responses
+    neuron-class : 1-D array
+        Neural classification results
+    net_response : 1-D array
+        Net change in activity (mostly in AUC) of every cell to every stimulus in every state
+    spec_state_types : 1-D array
+        List of CP states included in analysis
+    spec_stim_types : 1-D array
+        List of sensory stimuli included in analysis
+    group_color : list with the lenght of 3
+        Color representing excited, inhibited, no response cells, respectively
+    save_plot : Boolean 
+        Wheter or not to save the figure
+    save_dir : r-string
+        Directory for figure to export
+    
+    Returns
+    --------------------
+    Plotting
+    '''
     #signal prep
     time = metadata['Trace time']
     st_indx = np.where(time < 0)[0].max()
@@ -512,8 +635,6 @@ def cell_subset_heatmap(signal, metadata, neuron_class, net_response , spec_stim
         fig.suptitle(sti, weight = 'bold')
         os.chdir(save_dir)
         [fig.savefig(f'{sti} cell subgroup trace & heatmap.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
-
-
 
 # Not used plotting functions 
 ###############################################################################################################
