@@ -616,38 +616,77 @@ def traj_trace_pair_process(calciumpath, trajpath, tracking_source, formalin_sid
 
 #Functions for plotting
 ################################################################
-def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, signal, mice, state, start_delay, Total_duration, cross_boundary, raw_plot, save_raw_plot, save_table, save_directory):
-    ###############################
-    #Specify shade colors
-    ###############################
-    os.chdir(trajpath)
-    for txt_file in np.sort(file_list_traj):
-        print(f"File in process: {txt_file}")
-        #read in txt file 
-        data = []
-        with open(txt_file, newline = '') as f:                                                                         
-            f_reader = csv.reader(f, delimiter='\t')
-            for l in f_reader:
-                data.append(l)
-        data = np.array(data)
+def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, \
+                     signal, mice, state, start_delay, Total_duration, cross_boundary, \
+                        shade_color,raw_plot, save_raw_plot, save_table, save_dir):
+    '''
+    Inputs
+    -------
+    trajpath : r-string
+        Directory with trajectory files
+    formalin_side : dictionary
+        Specifying the formalin conditioned side for every animal ('R' or 'L')
+    file_list_traj : list or 1-D array
+        List of trajectory files to process
+    Ca_time : 1-D array
+        Time series of Ca signal time 
+    signal : 2-D array
+        CPP calcium traces of "all neurons" of "all animals" from "all trials"
+    mice : 1-D array
+        Corresponding mouse ID of every calcium trace in `signal`
+    state : 1-D array
+        Corresponding CP state of every calcium trace in `signal`
+    start_delay : float/integer
+        Delay of trial initiation in seconds, used for realigning time
+    Total_duration : float/integer
+        Total length of time included for analysis in seconds, data after specified time point will be cropped off
+    cross_boundary : [x range, y range]
+        Specifying the normalized range along horizontal or vertical direction in which border crossing event could be considered valid
+    shade_color : [color for uncnditioned side, color for conditioned side]
+    raw_plot : Boolean
+        Whether or not to show the graphs demonstrating preprossesing outcomes, including correction of missing points, specifying exploring chamber, as well as labeling of border crossing events.
 
-        traj_state = txt_file.split("cpp.txt")[0].split(' ')[-2]
-        traj_mice = txt_file.split("cpp.txt")[0].split(' ')[0]
+    Returns
+    -------
+    plotting 
+    '''
+    # Determine trajectory file format 
+    toxtrac = file_list_traj[0].endswith('.txt')
 
-        traj_metadata = traj_analyze_CPP(data,txt_file,formalin_side,cross_boundary,start_delay,Total_duration,formalin_side[traj_mice],raw_plot,save_raw_plot,save_table)
-        
-        time, X,Y , cond_ent, cond_ext , dist_border, side = traj_metadata['Time (s)'],traj_metadata['X position'],traj_metadata['Y position'],\
-        traj_metadata['Cond. enter Event timing (s)'],traj_metadata['Cond. exit Event timing (s)'], traj_metadata['Distance to center'],  traj_metadata['Side (U:-1 C:1)']
+    for traj_file in np.sort(file_list_traj):
+        os.chdir(trajpath)
+        #Read in trajectory file & determine trial information (mouse ID, CP state etc.)
+        if toxtrac:
+            data = []
+            #read in txt file 
+            with open(traj_file, newline = '') as f:                                                                                          
+                f_reader = csv.reader(f, delimiter='\t')
+                for l in f_reader:
+                    data.append(l)
+            data = np.array(data)
+            traj_state = traj_file.split("cpp.txt")[0].split(' ')[-2]
+            traj_mice = traj_file.split("cpp.txt")[0].split(' ')[0]
+        else: #File exported from ezTrack
+            #read in csv file
+            data = pd.read_csv(traj_file,header = None, low_memory = False).values
+            traj_state = traj_file.split("cpp_LocationOutput.csv")[0].split(' ')[-2]
+            traj_mice = traj_file.split("cpp_LocationOutput.csv")[0].split(' ')[0]
 
-        match_cell = np.where(np.logical_and(mice == traj_mice, state == traj_state))[0]
-        #Marked traces
+        #Generate trajectory / calcium trace paired dataset 
+        traj_metadata = traj_analyze_CPP(data,traj_file,cross_boundary,start_delay,20,\
+                                         Total_duration,formalin_side[traj_mice],\
+                                            raw_plot,save_raw_plot,save_table,save_dir)
+        time, side = traj_metadata['Time (s)'], traj_metadata['Side (U:-1 C:1)'] # Extract time & exploring position 
+
+        match_cell = np.where(np.logical_and(mice == traj_mice, state == traj_state))[0] # Index of cell in current trial 
+        #Plot out marked traces
         fig,ax = plt.subplots(1,1,figsize = (10,len(match_cell)*0.2))
-        # vline_time = time[np.where(np.logical_not(np.array([np.isnan(s) for s in side])))[0]]
-        [ax.vlines(time[np.where(side == s)[0]] ,0 ,len(match_cell), alpha = 0.02, color = ['lime' ,'red'][k]) for k,s in enumerate([-1,1])] 
-        # np.where(side ==1 )[0]],0,len(match_cell),alpha = 0.04,color = 'cyan') #Animal in right
-        # ax.vlines(time[np.where(X < 0)[0]],0,len(match_cell),alpha = 0.04,color = 'red') #Animal in left
+
+        #Mark exploring side of every time point with color
+        [ax.vlines(time[np.where(side == s)[0]] ,0 ,len(match_cell), alpha = 0.02, color = shade_color[k]) for k,s in enumerate([-1,1])] 
+        #Plot out calcium traces
         [ax.plot(Ca_time,signal[:,match_cell[n]]+1*n,'-k') for n in range(len(match_cell))]
-        ax.set(title = f'{txt_file.split("cpp.txt")[0]} - {formalin_side[traj_mice]}-conditioned',
+        ax.set(title = f'{traj_file.split("cpp.txt")[0]} - {formalin_side[traj_mice]}-conditioned',
             xlim = (0,600),
             ylim = (None,len(match_cell)),
             ylabel = 'Cell #',
@@ -657,24 +696,44 @@ def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, signal, mi
         ax.fill_between([0],0,0,color = 'red',label = 'Conditioned chamber')
         ax.fill_between([0],0,0,color = 'lime',label = 'Unconditioned chamber')
         ax.legend(loc = 3)
-        os.chdir(save_directory)#Save plots at desktop
-        plt.savefig(f'{txt_file.split("cpp.txt")[0]} marked traces.png', dpi = 600)
-        os.chdir(trajpath) #Switch back to original directory
 
-def triplot(x,y,cutoff,text,prefix,filename, group_col,histogram_color, delt_type, save_plot,save_directory):
+        os.chdir(save_dir)
+        fig.savefig(f'{traj_file.split("cpp.txt")[0]} marked traces.png', dpi = 600)
+
+def triplot(x,y,cutoff,text,prefix,filename, group_col,histogram_color, delt_type, save_plot,save_dir):
     '''
-    input: 
-        x: Variable #1
-        y: Variable #2
-        cutoff: Threshold for identifying responsive neurons 
-        text: naming of your stimuli
-        delt_type: way of determining cell classification index, this could be either 'diff' or 'pref'
-
-    output: 
-        cell_res: 
+    Inputs
+    -------
+    x : 1-D array
+        Variable #1
+    y : 1-D array
+        Variable #2
+    cutoff : Float
+        Threshold for identifying responsive neurons 
+    text : [string, string]
+        Text label for x and y
+    prefix : string
+        Prefix of figure title
+    filename : string
+        Name of the exported figure
+    group_col : list with lenght of 3
+        Color (in pie chart) denoting x-pref, y-pref, or no pref cells
+    histogram_color : string
+        Filled color for histogram
+    delt_type : 'diff' or 'pref'
+        way of determining cell classification index, this could be either 'diff' or 'pref'
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_dir : r-string
+        The directory in which the output will be saved
+    Returns
+    -------
+    plotting 
+    cell_res : 1-D array
+        Response of every songle cell
     '''
     cell_res = []
-    c_list = np.array([-cutoff,0,cutoff])
+    c_list = np.array([-cutoff,0,cutoff]) 
     lx = np.linspace(0,top := max([np.max(x),np.max(y)]),1000) 
     #Calculate the y value 
     ly = lambda x, c: x+c
@@ -683,13 +742,25 @@ def triplot(x,y,cutoff,text,prefix,filename, group_col,histogram_color, delt_typ
     f, (a, b, c) = plt.subplots(nrows=1, ncols=3,constrained_layout=True,figsize=(15,5))
     delt_pool = []
     for i, (pre,post) in enumerate(zip(x, y)):
-        delta = [(pre-post) if delt_type == 'diff' else (pre-post)/(pre+post) if delt_type  == 'pref' else None][0]
+        # calibrate delta 
+        delta = [(pre-post) if delt_type == 'diff' \
+                 else (pre-post)/(pre+post) if delt_type  == 'pref' \
+                    else None][0]
         delt_pool.append(delta)
-        a.scatter(x[i],y[i],s = 10,c= group_col[[0 if delta>= cutoff else 1 if delta < -cutoff else 2 if abs(delta) < cutoff else None][0]])
-        cell_res.append(['INH' if delta>= cutoff else 'EXT' if delta <= -cutoff else 'NS' if abs(delta) < cutoff else None][0])
-    a.plot(lx,ly(lx,c_list[1]),color = 'blue',alpha = 0.5) 
+
+        #Plot out data point with color label
+        a.scatter(x[i],y[i],s = 10,c= group_col[[0 if delta >= cutoff \
+                                                 else 1 if delta < -cutoff \
+                                                    else 2 if abs(delta) < cutoff else None][0]])
+        cell_res.append(['INH' if delta>= cutoff \
+                         else 'EXT' if delta <= -cutoff \
+                            else 'NS' if abs(delta) < cutoff else None][0])
+        
+    a.plot(lx,ly(lx,c_list[1]),color = 'blue',alpha = 0.5) # y = x
+
     if delt_type == 'diff':
-        [a.plot(lx,ly(lx,c),'--',color = 'blue', alpha = 0.2) if j !=1 else None for j,c in enumerate(c_list)]
+        [a.plot(lx,ly(lx,c),'--',color = 'blue', alpha = 0.2) if j !=1 \
+         else None for j,c in enumerate(c_list)] #Plot out decision boundary
     a.axis('equal')
     a.set(xlim=(0,top+0.01),
           ylim=(0,top+0.01),
@@ -702,11 +773,13 @@ def triplot(x,y,cutoff,text,prefix,filename, group_col,histogram_color, delt_typ
     labels = [f'{text[0]} pref.', f'{text[1]} pref.', 'No pref.']
     sizes = [inh,ext,ns]
     piecolors = group_col
-    b.pie(sizes, colors = piecolors, labels=labels, autopct='%1.1f%%',wedgeprops={'width':0.6,'alpha' : 0.5,'linewidth':3,'edgecolor':'w'},
+    b.pie(sizes, colors = piecolors, labels=labels, autopct='%1.1f%%',\
+          wedgeprops={'width':0.6,'alpha' : 0.5,'linewidth':3,'edgecolor':'w'},
         shadow=False, startangle=90)
     b.text(0, 0, f'N = {len(cell_res)}', ha='center', va='center', fontsize=10)
     b.legend(loc = 'lower center',frameon = False,ncol = 3,bbox_to_anchor = (0.5,-.05))
 
+    #Histogram of diff index (difference or preferecne score)
     hist_bar = c.hist(delt_pool, 20, color = histogram_color,density = False)
     c.set(ylabel = 'Cell count',
           xlabel = f'{["Preference score" if delt_type == "pref" else "Inter-side difference"][0]}',
@@ -718,66 +791,62 @@ def triplot(x,y,cutoff,text,prefix,filename, group_col,histogram_color, delt_typ
     # b.set_title()
     f.suptitle(f'{prefix} Unit classification ({["Preference score" if delt_type == "pref" else "Inter-side difference"][0]} cutoff: $\pm{round(cutoff,3)}$)',weight='bold')
     # f.subplots_adjust(wspace=0.2)
-    # f.tight_layout()
-    os.chdir(save_directory)
+    os.chdir(save_dir)
     [f.savefig(f"{filename}.png", dpi = 600, bbox_inches = 'tight') if save_plot else None]
 
     return np.array(cell_res)
 
-def pool_response_class_pie(trace_meta, state_list, pie_color_rough, pie_color_detail, plot_name, save_plot,save_directory):
+def pool_response_class_pie(trace_meta, state_list, pie_color_rough, pie_color_detail, plot_name, save_plot,save_dir):
+    '''
+    Inputs
+    -------
+    trace_meta : dictionary
+        Metadata for trajectory analysis
+    state_list : 1-D array
+        List of CP states included in analysis
+    pie_color_rough : list
+        Color for [Both responsive, Cond. enter only, Con.d exit only, None responsive] 
+    pie_color_detail : list with lenght of 8
+        Color for detailed response combination
+    plot_name : string
+        Name of the exported figure
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_dir : r-string
+        The directory in which the output will be saved
+
+    Returns
+    -------
+    plotting 
+    '''
     # Plot- donut chart for pooled results
-    fig, ax = plt.subplots(ncols = len(state_list),nrows = 2,figsize = (15,10))#, nrows=len(mouse_list))
+    fig, ax = plt.subplots(ncols = len(state_list),nrows = 2,figsize = (15,10))
     for i, s in enumerate(state_list):
-        # print(s)
-        # f,a = plt.subplots(ncol = len(state_list),nrows =1)
+        #index of enter response & ext response
         [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, trace_meta['Cross type'] == cr))[0] \
             for cr in np.sort(np.unique(trace_meta['Cross type']))] #find cell responses with the same cross event, animal, and trial
-        # print(s,ext_indx, ent_indx)
 
         cross_res, res_match = [], []
-        for k, comb  in enumerate(itertools.product(['EX','INH','NS'], repeat  = 2)): 
-            cross_res.append(f"in_{comb[0]}_out_{comb[1]}") 
-            res_match.append(np.where(np.logical_and(trace_meta['Response type'][ent_indx] == comb[0],\
-                trace_meta['Response type'][ext_indx] == comb[1]))[0])
-        
-        keep_indx = np.where(np.logical_xor(np.zeros(len(cross_res)) == 0,  np.array([r.size for r in res_match]) == 0))[0] #Remove response combination with no matched cells
-        res_match_del = np.array(res_match,dtype = 'object')[keep_indx] #indexes of matched cells
+        for ra , rb in itertools.product(['EX','INH','NS'], repeat  = 2): 
+            cross_res.append(f"in_{ra}_out_{rb}") 
+            res_match.append(np.where(np.logical_and(trace_meta['Response type'][ent_indx] == ra,\
+                trace_meta['Response type'][ext_indx] == rb))[0])
+        #Remove response combination with no matched cells
+        keep_indx = np.where(np.logical_xor(np.zeros(len(cross_res)) == 0,  np.array([r.size for r in res_match]) == 0))[0] 
+        #In accordance, determine the indexes of matched cells
+        res_match_del = np.array(res_match,dtype = 'object')[keep_indx] 
         cross_res_del = np.array(cross_res)[keep_indx]
-        # response type conversion
+        # response type conversion : EXT, INH = True, NS = False
         res_rend = np.array([[re.split('_')[1] != 'NS', re.split('_')[3] != 'NS']\
             for re in cross_res_del])#Responding or not
-        # print(cross_res_del)
-
+        # Count the number of cells with certain response combinations
         res_count = [np.concatenate(res_match_del[np.logical_and(res_rend[:,0] == k[0], res_rend[:,1]== k[1])]).size \
                     for k in itertools.product([True,False],repeat = 2)]
-
-        #Quantifying cell counts responding to either crossing event 
-
-        # print(cross_res_del)
-        # print(res_rend)
-        # # print(res_rend)
-        # print(res_match_del[np.logical_and(res_rend[:,0] == True, res_rend[:,1]== True)])
-        #with certain response/not responde detail #(np.concatenate(
-        # res_count = []
-        # for r1, r2 in  itertools.product([True,False],repeat = 2):
-        #     match_c = np.where(np.logical_and(res_rend[:,0] == r1, res_rend[:,1]== r2))[0]
-
-        #     # print(res_match_del)
-        #     if match_c.size >0: 
-        #         print(r1, r2, match_c)
-        #         res_count.append(np.array(res_match_del[match_c])[0].size)
-        #         # print()
-
-        # res_count = np.concatenate(res_count).size
-
-
+        
         # res_count = [np.concatenate(res_match_del[np.logical_and(res_rend[:,0] == k[0], res_rend[:,1]== k[1])]).size \
         #             for k in itertools.product([True,False],repeat = 2)]
-
-
         # res_count = [np.logical_and(res_rend[:,0] == k[0], res_rend[:,1]== k[1]).sum() \
-        #             for k in itertools.product([True,False],repeat = 2)]
-        #Add a empty array in case there's only one matched array   
+        #             for k in itertools.product([True,False],repeat = 2)] 
         
         #plotting - pie (donut) charts
         ax[0,i].pie(res_count, labels = res_count, colors = pie_color_rough, 
@@ -806,13 +875,32 @@ def pool_response_class_pie(trace_meta, state_list, pie_color_rough, pie_color_d
                         fancybox=True) 
     fig.suptitle(plot_name,weight= 'bold')
     fig.tight_layout()
-    os.chdir(save_directory)
+    os.chdir(save_dir)
     [fig.savefig(f'{plot_name}.png', dpi = 600, bbox_inches = 'tight') if save_plot else None]
 
+def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough, plot_name, save_plot,save_dir):
+    '''
+    Inputs
+    -------
+    trace_meta : dictionary
+        Metadata for trajectory analysis
+    state_list : 1-D array
+        List of CP states included in analysis
+    pie_color_rough : list
+        Color for [Both responsive, Cond. enter only, Con.d exit only, None responsive] 
+    plot_name : string
+        Name of the exported figure
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_dir : r-string
+        The directory in which the output will be saved
 
-def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough, pie_color_detail, plot_name, save_plot,save_directory):
+    Returns
+    -------
+    plotting 
+    '''
     # Plot- donut chart for individual results
-    for m in np.unique(mice):
+    for m in np.unique(mice): #Run through individual mouse
         fig, ax = plt.subplots(ncols = len(state_list),nrows = 1,figsize = (15,5))
         for i, s in enumerate(state_list): 
             [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, np.logical_and(trace_meta['Cross type'] == cr, trace_meta['Mouse'] == m)))[0] \
@@ -823,10 +911,10 @@ def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough,
                 next
             else:
                 cross_res, res_match = [], []
-                for k, comb  in enumerate(itertools.product(['EX','INH','NS'], repeat  = 2)):
-                    cross_res.append(f"R_{comb[0]}_L_{comb[1]}") 
-                    res_match.append(np.where(np.logical_and(trace_meta['Response type'][ent_indx] == comb[0],\
-                        trace_meta['Response type'][ext_indx] == comb[1]))[0])
+                for ra, rb  in itertools.product(['EX','INH','NS'], repeat  = 2):
+                    cross_res.append(f"R_{ra}_L_{rb}") 
+                    res_match.append(np.where(np.logical_and(trace_meta['Response type'][ent_indx] == ra,\
+                        trace_meta['Response type'][ext_indx] == rb))[0])
                 
                 keep_indx = np.where(np.logical_xor(np.zeros(len(cross_res)) == 0,  np.array([r.size for r in res_match]) == 0))[0] #Remove response combination with no matched cells
                 res_match_del = np.array(res_match,dtype = 'object')[keep_indx] #indexes of matched cells
@@ -858,36 +946,62 @@ def individual_response_class_pie(trace_meta, mice, state_list, pie_color_rough,
                 ax[i].set_title(f"{s} - Responsiveness")
             fig.suptitle(f'{m} - {plot_name}',weight= 'bold')
             fig.tight_layout()
-            os.chdir(save_directory)
+            os.chdir(save_dir)
             [fig.savefig(f'{m} - {plot_name}.png', dpi = 600, bbox_inches = 'tight') if save_plot else None]
 
-def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_save_name, save_plot, save_directory): 
-    for s in state_list:
-        [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, trace_meta['Cross type'] == cr))[0] for cr in np.sort(np.unique(trace_meta['Cross type']))] #find cell responses with the same cross event, animal, and trial
+def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_save_name, save_plot, save_dir): 
+    '''
+    Inputs
+    -------
+    trace_meta : dictionary
+        Metadata for trajectory analysis
+    state_list : 1-D array
+        List of CP states included in analysis
+    thr : float
+        Threshold of Z-score activity for neuron to be classfied as crossing-responsiv 
+    heatmap_save_name : string
+        Name of the exported heatmap
+    mean_trace_save_name : string 
+        Name of the exported "figure" of averaged traces
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_dir : r-string
+        The directory in which the output will be saved
+
+    Returns
+    -------
+    plotting 
+    '''
+    for s in state_list: #Run thorugh CP states
+        #find cell responses with the same cross event, animal, and trial
+        [ent_indx , ext_indx] = [np.where(np.logical_and(trace_meta['State'] == s, trace_meta['Cross type'] == cr))[0] for cr in np.sort(np.unique(trace_meta['Cross type']))] 
         cross_res, res_match = [], []
-        match_trace_ext, match_trace_ent = [], [] #Cell traces for certain response combination 
+        #Cell traces for certain response combination 
+        match_trace_ext, match_trace_ent = [], [] 
 
         #prepare cell traces 
         for ra , rb in itertools.product(['EX','INH','NS'], repeat  = 2): 
-            match = np.where(np.logical_and(trace_meta['Response type'][ent_indx] == ra,trace_meta['Response type'][ext_indx] == rb))[0]  #Find cell index with matched response type 
+            #Find cell index with matched response type 
+            match = np.where(np.logical_and(trace_meta['Response type'][ent_indx] == ra,trace_meta['Response type'][ext_indx] == rb))[0]  
             if len(match) > 0: #Exclude response combination with no matched cell
-                    cross_res.append(f"in_{ra}_out_{rb}") #Document response combination 
+                    #Document response combination 
+                    cross_res.append(f"in_{ra}_out_{rb}") 
                     res_match.append(match) 
+                    #Include matched cell traces
                     match_trace_ent.append(trace_meta['Extracted trace mean'][ent_indx][match])
                     match_trace_ext.append(trace_meta['Extracted trace mean'][ext_indx][match])
-        # #plotting 
+        #plotting 
         time = trace_meta['Trace time']
         #heatmap 
-        f, ax  = plt.subplots(ncols = 2, nrows = len(cross_res), figsize = (10,2*len(cross_res)))
+        fig  = plt.figure(figsize = (10,2*len(cross_res)))
         gs = gridspec.GridSpec(len(cross_res),2,height_ratios=[len(l) for l in res_match],wspace=0.1, hspace=0.2)
         for j, comb in enumerate(cross_res):
-            for n ,cr in enumerate(np.sort(np.unique(trace_meta['Cross type']))):
+            for n in range(np.unique(trace_meta['Cross type']).size):
                 heatmap_trace = np.array([match_trace_ent[j], match_trace_ext[j]][n]) #row: cell, column: data point
-                # print(heatmap_trace.shape)
-                # heatmap_trace = heatmap_trace[np.argsort(np.mean(heatmap_trace, axis = 1)),:] 
                 ax = plt.subplot(gs[j,n])
-                im = ax.imshow(heatmap_trace, cmap='jet', interpolation='none',aspect='auto',vmin = -2, vmax = 10)#Plot out heatmap 
-
+                #Plot out heatmap 
+                im = ax.imshow(heatmap_trace, cmap='jet', interpolation='none',aspect='auto',vmin = -2, vmax = 10)
+                #Marking out the timine of crossing event (t = 0 s)
                 ax.vlines([heatmap_trace.shape[1]/2], -.5, heatmap_trace.shape[0]-.5, color = 'white', linestyles='dotted')
                 [ax.set_title(f"{s}\n{['Enter','Exit'][n]} conditioned side \n") if j == 0 else None]
                 [ax.set_ylabel(f'i-{comb.split("_")[1].lower()}\no-{comb.split("_")[-1].lower()}') if n == 0 else None]
@@ -895,25 +1009,25 @@ def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_
                 [ax.set_xticks(np.linspace(0,len(time)-1,5,dtype = 'int'),np.linspace(round(time.min()),round(time.max()),5,dtype = 'int'))\
                 if j == len(cross_res)-1 else ax.set_xticks([])]
                 ax.set_xlabel(['Time from event (s)' if j == len(cross_res)-1 else None][0])
-        cax = f.add_axes([.93, 0.27, 0.02, 0.1])
-        cbar = f.colorbar(im,cax = cax)
+        # Add colobar
+        cax = fig.add_axes([.93, 0.27, 0.02, 0.1])
+        cbar = fig.colorbar(im,cax = cax)
         cbar.ax.set_yticks([10,8,6,4,2,0,-2],[f'>10',8,6,4,2,0,f'<-2']);
         cbar.set_label('Z-score ($\sigma$)', labelpad=-15,y=1.21,rotation=360)
-        os.chdir(save_directory)
-        [f.savefig(f'{s} - {heatmap_save_name}.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
+        os.chdir(save_dir)
+        [fig.savefig(f'{s} - {heatmap_save_name}.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
 
-        #Traces
-        f, ax  = plt.subplots(ncols = 2, nrows = len(cross_res), figsize = (10,2*len(cross_res)))
+        #Average Traces
+        fig = plt.figure(figsize = (10,2*len(cross_res)))
         gs = gridspec.GridSpec(len(cross_res),2,wspace=0.1, hspace=0.2)
         for j, comb in enumerate(cross_res):
-            for n ,cr in enumerate(np.sort(np.unique(trace_meta['Cross type']))):
+            for n in range(np.unique(trace_meta['Cross type']).size):
                 include_trace = np.array([match_trace_ent[j], match_trace_ext[j]][n]) #row: cell, column: data point
-                # print(heatmap_trace.shape)
                 # heatmap_trace = heatmap_trace[np.argsort(np.mean(heatmap_trace, axis = 1)),:] 
                 ax = plt.subplot(gs[j,n])
                 ax.plot(time, ave_trace:=include_trace.mean(axis = 0),label = f'Mean\n(n = {include_trace.shape[0]})')#Average trace 
-                ax.fill_between(time, ave_trace+ include_trace.std(axis = 0)/np.sqrt(include_trace.shape[0])\
-                                ,ave_trace- include_trace.std(axis = 0)/np.sqrt(include_trace.shape[0]), alpha = 0.2)
+                ax.fill_between(time, ave_trace + include_trace.std(axis = 0)/np.sqrt(include_trace.shape[0])\
+                                ,ave_trace - include_trace.std(axis = 0)/np.sqrt(include_trace.shape[0]), alpha = 0.2)
                 ax.vlines([0], -6,18, color = 'red', linestyles='dotted')#min(ave_trace),max(ave_trace),
                 ax.hlines([-thr,thr], time.min(), time.max(),color = 'gray', linestyles='dashed')
                 ax.hlines([0], time.min(), time.max(),color = 'black', linestyles='dashed')
@@ -925,10 +1039,36 @@ def heatmap_trace_plot(trace_meta, state_list,thr,heatmap_save_name, mean_trace_
                 [ax.set_yticks(np.linspace(-6,18,5)) if n == 0 else ax.set_yticklabels([])]
                 [ax.set_xticks(np.linspace(round(time.min()),round(time.max()),11,dtype = 'int')) if j == len(cross_res)-1 else ax.set_xticklabels([])]
                 ax.legend(loc = 2, frameon = False)
-        os.chdir(save_directory)
-        [f.savefig(f'{s} - {mean_trace_save_name}.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
+        os.chdir(save_dir)
+        [fig.savefig(f'{s} - {mean_trace_save_name}.png', dpi = 600, bbox_inches  = 'tight') if save_plot else None]
 
-def pref_class_heatmap(state, trace_meta, cell_pref, cond_indx, uncond_indx,class_colors, save_name ,save_plot, save_directory):
+def pref_class_heatmap(state, trace_meta, cell_pref, cond_indx, uncond_indx,class_colors, save_name ,save_plot, save_dir):
+    '''
+    Inputs
+    -------
+
+    state : 1-D array
+        Corresponding CP state of every calcium trace
+    trace_meta : dictionary
+        Metadata for trajectory analysis
+    cell_pref : 1-D array of cell preference 
+        'INT' = unconditioned preferring, 'EXT' = conditioned preferring, 'NR' = no preference
+    cond_indx : 1-D array
+        index of conditioned side enter associated trace
+    uncond_indx : 1-D array
+        index of unconditioned side enter associated trace
+    class_colors : list with lenght of 3 
+        Color (of averaged trace) denoting cond-pref, uncond-pref, or no pref cells
+    save_ename : string
+        Name of the exported figure
+    save_plot : Boolean
+        Whether or not the plotted graphs should be saved
+    save_dir : r-string
+        The directory in which the output will be saved
+    Returns
+    -------
+    plotting 
+    '''
     time = trace_meta['Trace time']
     type_indx  = [np.where(cell_pref == re)[0] for re in ['INH','EXT','NS']]
     f, ax  = plt.subplots(ncols = 2, nrows = 4, figsize = (10,13))
@@ -970,5 +1110,5 @@ def pref_class_heatmap(state, trace_meta, cell_pref, cond_indx, uncond_indx,clas
     f.suptitle(f'{state}', weight ='bold')
     
     if save_plot:
-        os.chdir(save_directory)
+        os.chdir(save_dir)
         f.savefig(save_name, dpi = 600, bbox_inches  = 'tight')
