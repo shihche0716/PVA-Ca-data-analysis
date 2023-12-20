@@ -125,9 +125,9 @@ def generate_sensory_metadata(file_dir, file_name, bin_num = 6):
     Summarize preprocessed extraction file into readable dictionary
     '''
     data = pd.read_csv(os.path.join(file_dir,file_name),header = None, low_memory=False).values
-    row_names = data[:,0]
+    row_names = np.array(data[:,0], dtype = 'str')
     bin_start_index = np.where(np.array(['Bin SNR' in tt for tt in row_names]))[0][0]+1
-    trace_start_index = np.where(row_names == 'Time (s)')[0][0]+1
+    trace_start_index = np.where(np.array([tt == 'Time (s)' for tt in row_names]))[0][0]+1
 
     metadata = {
         'Cell ID': data[1,1:],
