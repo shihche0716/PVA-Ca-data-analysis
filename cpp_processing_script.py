@@ -348,10 +348,11 @@ def traj_analyze_CPP(data,f_name,gate_range,t_delay,f_rate,\
     #Potential border crossing event
     #reverse crossing definition base on preferred side 
     pref_factor = (int(pref_side == 'R')-0.5)*2 #Right: 1, Left: -1
+    X_new *= pref_factor
     #Whether the animal position is in the right chamber (1) or left chamber (0)
     x_side = np.array([np.nan if np.isnan(x) else 1 if x > 0 else 0 for x in X_new])
     #Reverse the 1, -1 correspondence based on preferred chamber side 
-    episode = (x_side[1:] - x_side[:-1])*pref_factor
+    episode = (x_side[1:] - x_side[:-1])
     cond_enter = np.where(np.logical_and(episode == 1 ,both_match[:-1]))[0]
     uncond_enter = np.where(np.logical_and(episode == -1,both_match[:-1]))[0]
     #Calibrate the distance of animal to the center of exploring space (in arbitrary units)
