@@ -695,8 +695,8 @@ def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, \
             xlabel = 'Time (s)',
             yticks =[0,len(match_cell)],
             yticklabels = np.array([0,len(match_cell)]))
-        ax.fill_between([0],0,0,color = 'red',label = 'Conditioned chamber')
-        ax.fill_between([0],0,0,color = 'lime',label = 'Unconditioned chamber')
+        ax.fill_between([0],0,0,color = shade_color[1],label = 'Conditioned chamber')
+        ax.fill_between([0],0,0,color = shade_color[0],label = 'Unconditioned chamber')
         ax.legend(loc = 3)
 
         os.chdir(save_dir)
