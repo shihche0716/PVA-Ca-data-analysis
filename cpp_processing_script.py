@@ -680,9 +680,10 @@ def shade_trace_plot(trajpath,formalin_side, file_list_traj, Ca_time, \
         time, side = traj_metadata['Time (s)'], traj_metadata['Side (U:-1 C:1)'] # Extract time & exploring position 
 
         match_cell = np.where(np.logical_and(mice == traj_mice, state == traj_state))[0] # Index of cell in current trial 
+        if formalin_side == 'L': 
+            side *= -1
         #Plot out marked traces
         fig,ax = plt.subplots(1,1,figsize = (10,len(match_cell)*0.2))
-
         #Mark exploring side of every time point with color
         [ax.vlines(time[np.where(side == s)[0]] ,0 ,len(match_cell), alpha = 0.02, color = shade_color[k]) for k,s in enumerate([-1,1])] 
         #Plot out calcium traces
