@@ -1,6 +1,6 @@
-# PVT-Ca-data-analysis-script
+# PVA-Ca-data-analysis-script
 
-Python scripts and Jupyter notebooks for processing & graphing calcium imaging behavioral results acquired from PVT chronic pain project
+Python scripts and Jupyter notebooks for processing & graphing calcium imaging behavioral results acquired from PVA chronic pain project
 
 ## Items in the repository include
 
